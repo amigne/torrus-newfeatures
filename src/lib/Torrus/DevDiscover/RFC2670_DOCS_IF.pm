@@ -53,6 +53,7 @@ our %oiddef =
      # DOCS-IF-MIB
      'docsIfDownstreamChannelTable' => '1.3.6.1.2.1.10.127.1.1.1',
      'docsIfCmtsDownChannelCounterTable' => '1.3.6.1.2.1.10.127.1.3.10',
+     'docsIfCmtsDownChnlCtrExtTotalBytes' => '1.3.6.1.2.1.10.127.1.3.10.1.4',
      'docsIfSigQSignalNoise' => '1.3.6.1.2.1.10.127.1.1.4.1.5',
      );
 
@@ -89,6 +90,8 @@ sub discover
     }
 
     my $snrTable = $dd->walkSnmpTable('docsIfSigQSignalNoise');
+    my $downCtrTable = 
+        $dd->walkSnmpTable('docsIfCmtsDownChnlCtrExtTotalBytes');
     
     $data->{'docsCableMaclayer'} = [];
     $data->{'docsCableDownstream'} = [];
@@ -99,6 +102,7 @@ sub discover
     {
         my $interface = $data->{'interfaces'}{$ifIndex};
         my $ifType = $interface->{'ifType'};
+        my $ifDescr = $interface->{'ifDescr'};
 
         $interface->{'docsTemplates'} = [];
         $interface->{'docsParams'} = {};
@@ -112,13 +116,29 @@ sub discover
         {
             push( @{$data->{'docsCableMaclayer'}}, $ifIndex );
         }
-        elsif(  $ifType == 128 )
+        elsif( $ifType == 128 ||  
+             ( $ifType == 1 && $ifDescr =~
+             /^Integrated-Cable([0-9]+\/)?[0-9]+\/[0-9]+-downstream[0-9]+$/ ) )
         {
-            push( @{$data->{'docsCableDownstream'}}, $ifIndex );
-            if( $devdetails->hasCap('docsDownstreamUtil') )
+            # Cisco cBR-8 IOS XE assigns ifType = 128 to 
+            # "Integrate-Cable0/X/Y:N" interfaces, which are primary DS
+            # channels, but which don't implement the 
+            # "docsIfCmtsDownChannelCounterTable"...
+            # sDownstream channels are named as 
+            # "Integrated-Cable0/X/Y-downstreamN" with ifType = 1, but
+            # implements "docsIfCmtsDownChannelCounterTable"...
+
+            # Make sure the "docsIfCmtsDownChannelCounterTable" is
+            # implemented :
+            if ( defined($downCtrTable->{$ifIndex}) )
             {
-                push( @{$interface->{'docsTemplates'}},
-                      'RFC2670_DOCS_IF::docsis-downstream-util' );
+
+                push( @{$data->{'docsCableDownstream'}}, $ifIndex );
+                if( $devdetails->hasCap('docsDownstreamUtil') )
+                {
+                    push( @{$interface->{'docsTemplates'}},
+                          'RFC2670_DOCS_IF::docsis-downstream-util' );
+                }
             }
         }
         elsif( $ifType == 129 or $ifType == 205 )
